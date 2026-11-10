@@ -1,0 +1,30 @@
+﻿ASISTENTE DOMÓTICO POR SEÑAS — cómo usarlo (Windows)
+=====================================================
+
+Necesitas Python 3.12 o más nuevo (python.org; marca "Add Python to PATH" al instalar).
+
+1) Doble clic en  1_instalar.bat        (solo la primera vez; descarga las librerías, tarda unos minutos)
+2) Doble clic en  2_demo_sin_camara.bat  -> abre http://localhost:5000 con un video de ejemplo y la Pico simulada
+   o en           3_con_camara.bat       -> usa la cámara del computador (y la Pico si está conectada por USB)
+
+Cierra la ventana negra para apagar el programa.
+
+En la página:
+- Haz una seña frente a la cámara: el sistema la reconoce y enciende/apaga la luz, el ventilador o la cerradura.
+- Escríbele al agente en el chat: "hola", "enciende la luz y el ventilador", "abre la puerta", "apaga todo",
+  "¿qué está encendido?", "¿por qué no se encendió?", "saca el ROI de mi mano".
+- El botón "Guardar ROI" guarda el recorte de la mano en la carpeta capturas\.
+
+Agente con inteligencia artificial de OpenAI (opcional):
+  copia .env.ejemplo como .env y escribe tu clave en OPENAI_API_KEY=...
+  Sin clave funciona igual en "modo básico" (entiende frases comunes).
+
+GPU NVIDIA (opcional, más rápido): antes del paso 1 ejecuta en una terminal
+  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+
+Qué NO viene en esta carpeta (para que pese poco):
+  las fotos originales (images\) y el dataset (dataset_senas\). Solo hacen falta para REENTRENAR los modelos
+  (entrenar_senas.py, clasificador_ml.py, evaluar_sistema.py). Los modelos ya entrenados sí vienen:
+  runs\senas\weights\best.pt (YOLO) y modelos\clasificador_ml.joblib (ML).
+
+Más detalles: README.md  y  GUIA_SUSTENTACION.md

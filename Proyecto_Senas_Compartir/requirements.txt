@@ -1,0 +1,13 @@
+# Instalar PRIMERO torch con CUDA (si hay GPU NVIDIA), porque "pip install ultralytics" trae la versión solo-CPU:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+# Luego:
+#   pip install -r requirements.txt
+ultralytics          # YOLO11n (Deep Learning)
+opencv-python        # procesamiento de imágenes, cámara, video
+numpy
+pyserial             # USB serial con la Raspberry Pi Pico
+scikit-learn         # clasificador clásico (Machine Learning)
+joblib               # guardar/cargar el clasificador
+flask                # servidor web
+python-dotenv        # leer OPENAI_API_KEY del archivo .env
+openai               # agente (Responses API con function calling)

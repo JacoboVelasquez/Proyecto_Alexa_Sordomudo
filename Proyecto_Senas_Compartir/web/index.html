@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asistente por señas</title>
+<!--
+  Interfaz de demostración. Un solo archivo: HTML + CSS + JavaScript puro, sin librerías ni internet.
+  Cada 300 ms pide /api/estado al servidor (polling) y redibuja. Toda confirmación es VISUAL
+  (destello grande + aviso escrito del agente), porque el sistema es para personas sordas.
+-->
+<style>
+  :root {
+    --fondo: #f3f5f8; --tarjeta: #ffffff; --texto: #17202c; --suave: #5b6779; --borde: #d9dee6;
+    --ok: #12804a; --ok-fondo: #dcf5e7; --mal: #c62828; --mal-fondo: #fde3e3; --neutro: #e7eaef;
+    --acento: #1f5fbf; --acento-fondo: #e1ecfb; --amarillo: #b26a00; --amarillo-fondo: #fff1d6;
+    --t-proc: #7b3fbf; --t-ml: #0f7f8c; --t-dl: #c2410c; --t-ag: #1f5fbf;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --fondo: #10141b; --tarjeta: #19202a; --texto: #e8edf4; --suave: #9aa7b8; --borde: #2c3644;
+      --ok: #4ade80; --ok-fondo: #12351f; --mal: #f87171; --mal-fondo: #3d1717; --neutro: #26303d;
+      --acento: #7cb0ff; --acento-fondo: #1a2b45; --amarillo: #fbbf24; --amarillo-fondo: #3a2c0c;
+      --t-proc: #b78af0; --t-ml: #4fd1dc; --t-dl: #fb923c; --t-ag: #7cb0ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--fondo); color: var(--texto);
+         font: 18px/1.4 system-ui, "Segoe UI", Roboto, sans-serif; }
+  h2 { font-size: 1.15rem; margin: 0 0 10px; }
+  button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--borde);
+           background: var(--tarjeta); color: var(--texto); padding: 8px 14px; }
+  button:hover { border-color: var(--acento); }
+  .tarjeta { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 14px; padding: 16px; }
+
+  /* ---------- encabezado ---------- */
+  header { position: sticky; top: 0; z-index: 5; background: var(--tarjeta); border-bottom: 1px solid var(--borde);
+           padding: 10px 20px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  header h1 { font-size: 1.35rem; margin: 0; }
+  header h1 small { display: block; font-size: .8rem; color: var(--suave); font-weight: 400; }
+  .insignias { display: flex; gap: 6px; flex-wrap: wrap; }
+  .insignia { padding: 5px 12px; border-radius: 999px; font-size: .85rem; font-weight: 700;
+              border: 2px solid var(--c); color: var(--c); opacity: .35; transition: all .2s; }
+  .insignia.activa { opacity: 1; background: var(--c); color: #fff; }
+  .pildora { padding: 5px 12px; border-radius: 999px; font-size: .85rem; font-weight: 600; background: var(--neutro); }
+  .pildora.ok { background: var(--ok-fondo); color: var(--ok); }
+  .pildora.mal { background: var(--mal-fondo); color: var(--mal); }
+  .pildora.sim { background: var(--amarillo-fondo); color: var(--amarillo); }
+  .derecha { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  nav { display: flex; gap: 6px; padding: 12px 20px 0; flex-wrap: wrap; }
+  nav button.activa { background: var(--acento); color: #fff; border-color: var(--acento); }
+  #aviso { margin: 10px 20px 0; padding: 10px 14px; border-radius: 10px; background: var(--amarillo-fondo);
+           color: var(--amarillo); display: none; }
+
+  main { padding: 14px 20px 40px; }
+  .pagina { display: none; } .pagina.activa { display: block; }
+  .grilla { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; }
+  .columna { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  @media (max-width: 1000px) { .grilla { grid-template-columns: 1fr; } }
+
+  #video { width: 100%; border-radius: 10px; background: #000; display: block; min-height: 200px; }
+
+  /* ---------- flujo de decisión ---------- */
+  .flujo { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+  @media (max-width: 700px) { .flujo { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .etapa { border-radius: 10px; padding: 8px; background: var(--neutro); border-top: 5px solid var(--c, var(--borde));
+           min-height: 86px; }
+  .etapa b { display: block; font-size: .8rem; color: var(--suave); }
+  .etapa span { display: block; font-size: .95rem; font-weight: 600; overflow-wrap: anywhere; white-space: pre-line; }
+  .etapa.ok { background: var(--ok-fondo); } .etapa.ok span { color: var(--ok); }
+  .etapa.mal { background: var(--mal-fondo); } .etapa.mal span { color: var(--mal); }
+  #motivo { font-size: 1.7rem; font-weight: 800; margin: 12px 0 6px; overflow-wrap: anywhere; }
+  .barra { height: 16px; background: var(--neutro); border-radius: 999px; overflow: hidden; }
+  .barra > div { height: 100%; width: 0; background: var(--ok); transition: width .15s; }
+  #bloqueo { margin-top: 8px; font-weight: 700; color: var(--amarillo); display: none; }
+
+  #etapas { width: 100%; border-radius: 8px; background: #000; display: block; }
+  .numeros { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .numero { background: var(--neutro); border-radius: 8px; padding: 6px 10px; font-size: .9rem; }
+  .numero b { font-size: 1.1rem; }
+  .prob { display: grid; grid-template-columns: 110px 1fr 52px; gap: 8px; align-items: center; margin: 4px 0; font-size: .95rem; }
+  .prob .barra > div { background: var(--t-ml); }
+  .prob.yolo { font-weight: 800; }
+
+  /* ---------- actuadores ---------- */
+  .actuadores { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .act { border-radius: 14px; padding: 14px 8px; text-align: center; background: var(--neutro);
+         border: 3px solid transparent; transition: all .25s; }
+  .act .icono { font-size: 3rem; line-height: 1.1; display: inline-block; }
+  .act .nombre { font-weight: 700; }
+  .act .valor { font-size: 1.2rem; font-weight: 800; color: var(--suave); }
+  .act.on { background: var(--ok-fondo); border-color: var(--ok); }
+  .act.on .valor { color: var(--ok); }
+  .act button { margin-top: 8px; width: 100%; }
+  .act.pulso { animation: pulso .9s; }
+  @keyframes pulso { 0% { transform: scale(1); } 30% { transform: scale(1.08); box-shadow: 0 0 0 10px var(--acento-fondo); } 100% { transform: scale(1); } }
+  #act-ventilador.on .icono { animation: girar 1s linear infinite; }
+  @keyframes girar { to { transform: rotate(360deg); } }
+  .fila-botones { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .fila-botones button { flex: 1; }
+
+  /* ---------- chat ---------- */
+  #chat { height: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px; }
+  .msg { max-width: 92%; padding: 9px 12px; border-radius: 12px; overflow-wrap: anywhere; }
+  .msg small { display: block; font-size: .75rem; color: var(--suave); }
+  .msg.usuario { align-self: flex-end; background: var(--acento); color: #fff; }
+  .msg.usuario small { color: #dbe7ff; }
+  .msg.agente { align-self: flex-start; background: var(--neutro); }
+  .msg.hecho { align-self: flex-start; background: var(--ok-fondo); border-left: 6px solid var(--ok); font-weight: 600; }
+  .msg.no_hecho { align-self: flex-start; background: var(--mal-fondo); border-left: 6px solid var(--mal); font-weight: 600; }
+  .msg .acciones { font-size: .85rem; color: var(--acento); margin-top: 4px; font-weight: 700; }
+  .msg img { display: block; max-width: 220px; max-height: 220px; margin-top: 6px; border-radius: 8px; }
+  .roi-fila { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+  #roi { width: 220px; height: 220px; object-fit: contain; background: #000; border-radius: 10px; }
+  .roi-texto { flex: 1; min-width: 180px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .chips button { font-size: .85rem; padding: 5px 10px; border-radius: 999px; }
+  .entrada { display: flex; gap: 8px; }
+  .entrada input { flex: 1; min-width: 0; font: inherit; padding: 10px; border-radius: 10px;
+                   border: 1px solid var(--borde); background: var(--fondo); color: var(--texto); }
+  #pensando { color: var(--suave); font-style: italic; display: none; margin-top: 6px; }
+
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+  th, td { border-bottom: 1px solid var(--borde); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--suave); font-weight: 600; }
+  .tabla-scroll { overflow-x: auto; }
+  .origen { padding: 2px 9px; border-radius: 999px; font-weight: 700; font-size: .85rem; }
+  .origen.seña { background: var(--ok-fondo); color: var(--ok); }
+  .origen.agente { background: var(--acento-fondo); color: var(--acento); }
+  .origen.manual { background: var(--amarillo-fondo); color: var(--amarillo); }
+
+  .ajuste { display: grid; grid-template-columns: 170px 1fr 60px; gap: 10px; align-items: center; margin: 8px 0; }
+  .ajuste input[type=range] { width: 100%; }
+  .ajuste select { font: inherit; padding: 6px; border-radius: 8px; }
+  .nota { color: var(--suave); font-size: .88rem; }
+
+  /* ---------- destello de confirmación ---------- */
+  #destello { position: fixed; inset: 0; pointer-events: none; display: flex; align-items: center; justify-content: center;
+              border: 18px solid var(--ok); opacity: 0; z-index: 20; }
+  #destello div { background: var(--ok); color: #fff; font-size: 2.4rem; font-weight: 800; padding: 24px 36px;
+                  border-radius: 20px; max-width: 80vw; text-align: center; }
+  #destello.ver { animation: destello 2.2s ease-out; }
+  @keyframes destello { 0% { opacity: 0; } 8% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
+
+  /* ---------- modelos / cómo funciona ---------- */
+  .cifras { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .cifra { background: var(--neutro); border-radius: 12px; padding: 12px; }
+  .cifra b { display: block; font-size: 1.8rem; }
+  .cifra span { color: var(--suave); font-size: .85rem; }
+  .galeria { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
+  .galeria img { width: 100%; border-radius: 8px; border: 1px solid var(--borde); background: #fff; }
+  .diagrama { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; }
+  .caja { flex: 1 1 140px; border-radius: 12px; padding: 10px; border: 3px solid var(--c); background: var(--tarjeta); }
+  .caja b { color: var(--c); display: block; }
+  .caja span { font-size: .85rem; color: var(--suave); }
+  .flecha { align-self: center; font-size: 1.6rem; color: var(--suave); }
+  .seccion { margin-bottom: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Asistente domótico por señas<small>Un «Alexa» para personas sordas · Visión Artificial EIA</small></h1>
+  <div class="insignias" title="Se iluminan cuando participan en la decisión actual">
+    <span class="insignia" id="b-proc" style="--c: var(--t-proc)">1 Procesamiento</span>
+    <span class="insignia" id="b-dl" style="--c: var(--t-dl)">2 Deep Learning</span>
+    <span class="insignia" id="b-ml" style="--c: var(--t-ml)">3 Machine Learning</span>
+    <span class="insignia" id="b-ag" style="--c: var(--t-ag)">4 Agente IA</span>
+  </div>
+  <div class="derecha">
+    <span class="pildora" id="conexion">conectando…</span>
+    <span class="pildora" id="fps">— FPS</span>
+    <span class="pildora" id="dispositivo">—</span>
+  </div>
+</header>
+<nav>
+  <button class="activa" data-pagina="vivo">En vivo</button>
+  <button data-pagina="modelos">Modelos y pruebas</button>
+  <button data-pagina="como">Cómo funciona</button>
+</nav>
+<div id="aviso"></div>
+
+<main>
+<!-- ===================================== EN VIVO ===================================== -->
+<section class="pagina activa" id="pag-vivo">
+ <div class="grilla">
+  <div class="columna">
+    <div class="tarjeta">
+      <img id="video" src="/video" alt="Video en vivo de la cámara con la caja de la mano">
+    </div>
+
+    <div class="tarjeta">
+      <h2>Flujo de decisión en vivo</h2>
+      <div class="flujo">
+        <div class="etapa" id="e-calidad" style="--c: var(--t-proc)"><b>1 Calidad</b><span>—</span></div>
+        <div class="etapa" id="e-yolo" style="--c: var(--t-dl)"><b>2 YOLO</b><span>—</span></div>
+        <div class="etapa" id="e-proc" style="--c: var(--t-proc)"><b>3 Contorno</b><span>—</span></div>
+        <div class="etapa" id="e-ml" style="--c: var(--t-ml)"><b>4 ML</b><span>—</span></div>
+        <div class="etapa" id="e-decision"><b>5 Decisión</b><span>—</span></div>
+        <div class="etapa" id="e-pico"><b>6 Pico</b><span>—</span></div>
+      </div>
+      <div id="motivo">esperando…</div>
+      <div class="barra" title="Cuadros seguidos con la misma seña válida"><div id="barra-conf"></div></div>
+      <div class="nota" id="texto-conf">Confirmación 0/5</div>
+      <div id="bloqueo">🖐 Bloqueada: baja la mano para repetir la misma seña</div>
+    </div>
+
+    <div class="tarjeta">
+      <h2>ROI de la mano (recorte de la caja de YOLO)</h2>
+      <div class="roi-fila">
+        <img id="roi" src="/roi.jpg" alt="Recorte de la mano detectada">
+        <div class="roi-texto">
+          <p class="nota">La <b>ROI</b> (región de interés) es el pedazo de la imagen donde YOLO encontró la mano,
+             con 10 % de margen. Todo el procesamiento y el ML trabajan solo sobre este recorte.</p>
+          <p id="roi-info" class="nota"></p>
+          <button id="guardar-roi">📷 Guardar ROI</button>
+        </div>
+      </div>
+      <h2 style="margin-top:14px">Etapas del procesamiento de la mano</h2>
+      <img id="etapas" src="/etapas.jpg" alt="ROI, máscara, contorno con casco convexo y características">
+      <div class="numeros" id="numeros"></div>
+      <h2 style="margin-top:14px">Clasificador ML vs. YOLO</h2>
+      <div id="probs" class="nota">Sin datos aún.</div>
+    </div>
+  </div>
+
+  <div class="columna">
+    <div class="tarjeta">
+      <h2>Dispositivos</h2>
+      <div class="actuadores">
+        <div class="act" id="act-led"><div class="icono">💡</div><div class="nombre">Luz</div>
+          <div class="valor">—</div><button data-letra="L">Cambiar</button></div>
+        <div class="act" id="act-ventilador"><div class="icono">🌀</div><div class="nombre">Ventilador</div>
+          <div class="valor">—</div><button data-letra="V">Cambiar</button></div>
+        <div class="act" id="act-servo"><div class="icono">🔒</div><div class="nombre">Cerradura</div>
+          <div class="valor">—</div><button data-letra="S">Cambiar</button></div>
+      </div>
+      <div class="fila-botones">
+        <button data-letra="T">Todo (T)</button>
+        <button data-letra="?">Pedir estado (?)</button>
+      </div>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Agente (chat escrito)</h2>
+      <div id="chat" aria-live="polite"></div>
+      <div id="pensando">El agente está pensando…</div>
+      <div class="chips" id="chips">
+        <button>¿Qué está encendido?</button>
+        <button>Enciende el ventilador</button>
+        <button>Apaga todo</button>
+        <button>¿Por qué no se encendió?</button>
+        <button>Explícame cómo funciona</button>
+        <button>¿Qué tan bueno es el modelo?</button>
+        <button>Enciende la luz y el ventilador</button>
+        <button>Saca el ROI de mi mano</button>
+        <button>Haz un resumen de la sesión</button>
+      </div>
+      <div class="entrada">
+        <input id="mensaje" placeholder="Escribe aquí y pulsa Enter" autocomplete="off">
+        <button id="enviar">Enviar</button>
+        <button id="reiniciar" title="Borrar la conversación">↺</button>
+      </div>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Ajustes en vivo</h2>
+      <div class="ajuste"><label for="a-conf">Confianza YOLO mín.</label>
+        <input type="range" id="a-conf" min="0.30" max="0.95" step="0.05"><b id="v-conf">—</b></div>
+      <div class="ajuste"><label for="a-frames">Cuadros para confirmar</label>
+        <input type="range" id="a-frames" min="1" max="15" step="1"><b id="v-frames">—</b></div>
+      <div class="ajuste"><label for="a-ml">Prob. ML mín.</label>
+        <input type="range" id="a-ml" min="0" max="1" step="0.05"><b id="v-ml">—</b></div>
+      <div class="ajuste"><label for="a-modo">Modo</label>
+        <select id="a-modo"><option value="yolo+ml">YOLO + ML (verifica)</option><option value="yolo">Solo YOLO</option></select><span></span></div>
+      <div class="nota">Más confianza o más cuadros = menos disparos falsos pero respuesta más lenta.</div>
+    </div>
+  </div>
+ </div>
+
+ <div class="tarjeta" style="margin-top:14px">
+   <h2>Historial de órdenes</h2>
+   <div class="tabla-scroll"><table>
+     <thead><tr><th>Hora</th><th>Origen</th><th>Comando</th><th>Estado resultante</th></tr></thead>
+     <tbody id="historial"><tr><td colspan="4" class="nota">Aún no hay órdenes.</td></tr></tbody>
+   </table></div>
+ </div>
+</section>
+
+<!-- ===================================== MODELOS ===================================== -->
+<section class="pagina" id="pag-modelos">
+  <div class="tarjeta seccion"><h2>Deep Learning — YOLO11n (detección de la mano y la seña)</h2><div id="m-yolo" class="nota">Cargando…</div></div>
+  <div class="tarjeta seccion"><h2>Machine Learning — clasificador clásico (verifica a YOLO)</h2><div id="m-ml" class="nota">Cargando…</div></div>
+  <div class="tarjeta seccion"><h2>Pruebas ante variaciones (fotos de validación)</h2><div id="m-pruebas" class="nota">Cargando…</div></div>
+  <div class="tarjeta seccion"><h2>Datos: ejemplos por seña</h2><div id="m-conteo" class="nota">Cargando…</div></div>
+  <div class="tarjeta seccion"><h2>Gráficas del entrenamiento de YOLO</h2><div id="m-imagenes" class="galeria"></div></div>
+</section>
+
+<!-- ===================================== CÓMO FUNCIONA ===================================== -->
+<section class="pagina" id="pag-como">
+  <div class="tarjeta seccion">
+    <h2>El problema</h2>
+    <p>Los asistentes del hogar (Alexa, Google Home) se controlan con la voz y responden con sonido: las personas sordas
+       quedan por fuera. Este sistema se controla con <b>señas de la mano</b> frente a una cámara y responde <b>por escrito
+       y con señales visuales</b>.</p>
+  </div>
+  <div class="tarjeta seccion">
+    <h2>Flujo: los 4 temas en una sola cadena</h2>
+    <div class="diagrama">
+      <div class="caja" style="--c: var(--suave)"><b>Cámara</b><span>cuadro BGR en vivo o video</span></div><div class="flecha">→</div>
+      <div class="caja" style="--c: var(--t-proc)"><b>1 Procesamiento</b><span>calidad: Laplaciano (nitidez), canal V (brillo)</span></div><div class="flecha">→</div>
+      <div class="caja" style="--c: var(--t-dl)"><b>2 Deep Learning</b><span>YOLO11n: caja de la mano + seña + confianza</span></div><div class="flecha">→</div>
+      <div class="caja" style="--c: var(--t-proc)"><b>1 Procesamiento</b><span>ROI → CLAHE → YCrCb + Otsu → morfología → contorno, casco, defectos → características</span></div><div class="flecha">→</div>
+      <div class="caja" style="--c: var(--t-ml)"><b>3 Machine Learning</b><span>SVM / RF / KNN con forma + Hu + HOG: ¿coincide con YOLO?</span></div><div class="flecha">→</div>
+      <div class="caja" style="--c: var(--ok)"><b>Decisión</b><span>misma seña válida N cuadros seguidos + anti-rebote</span></div><div class="flecha">→</div>
+      <div class="caja" style="--c: var(--amarillo)"><b>Pico (USB)</b><span>letra L/V/S/T → LED, ventilador, servo</span></div><div class="flecha">→</div>
+      <div class="caja" style="--c: var(--t-ag)"><b>4 Agente IA</b><span>escribe qué hizo o no y por qué; responde y controla por texto</span></div>
+    </div>
+  </div>
+  <div class="tarjeta seccion">
+    <h2>Señas y comandos</h2>
+    <table>
+      <thead><tr><th>Seña (clase)</th><th>Letra</th><th>Qué hace la Pico</th></tr></thead>
+      <tbody>
+        <tr><td>led</td><td>L</td><td>Luz apagada ↔ encendida</td></tr>
+        <tr><td>ventilador</td><td>V</td><td>Ventilador apagado ↔ encendido</td></tr>
+        <tr><td>servo</td><td>S</td><td>Cerradura: servo 0° ↔ 90°</td></tr>
+        <tr><td>todo</td><td>T</td><td>Si algo está encendido apaga todo; si todo está apagado enciende todo</td></tr>
+        <tr><td>—</td><td>?</td><td>Solo responde el estado: <code>LED=ON VENT=OFF SERVO=ON</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="tarjeta seccion">
+    <h2>Conexiones de la Raspberry Pi Pico</h2>
+    <table>
+      <thead><tr><th>Pin</th><th>Conexión</th></tr></thead>
+      <tbody>
+        <tr><td>GP15</td><td>Resistencia 220 Ω → LED → GND</td></tr>
+        <tr><td>GP14</td><td>Base/gate de un transistor o MOSFET que enciende el ventilador; diodo flyback 1N4007 en paralelo con el ventilador (nunca el ventilador directo al pin)</td></tr>
+        <tr><td>GP16</td><td>Señal del servo; servo alimentado a 5 V (VBUS o fuente externa)</td></tr>
+        <tr><td>GND</td><td>Tierra común con la fuente del ventilador y del servo</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+</main>
+
+<div id="destello"><div id="destello-texto"></div></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let ultimoChat = 0;          // id del último mensaje dibujado
+let ultimoAvisoAgente = 0;   // cuándo escribió el agente por última vez (para iluminar su insignia)
+let primeraCarga = true;
+let parametros = null;
+let editando = false;        // no pisar un slider mientras se arrastra
+
+// ---------------- pestañas ----------------
+document.querySelectorAll("nav button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("activa", x === b));
+  document.querySelectorAll(".pagina").forEach((p) => p.classList.toggle("activa", p.id === "pag-" + b.dataset.pagina));
+  if (b.dataset.pagina === "modelos") cargarMetricas();
+});
+
+// ---------------- utilidades ----------------
+function nodo(tag, clase, texto) {
+  const n = document.createElement(tag);
+  if (clase) n.className = clase;
+  if (texto !== undefined) n.textContent = texto;   // textContent: nunca se interpreta como HTML
+  return n;
+}
+function etapa(id, estado, texto) {
+  const e = $(id);
+  e.classList.toggle("ok", estado === "ok");
+  e.classList.toggle("mal", estado === "mal");
+  e.querySelector("span").textContent = texto;
+}
+async function post(url, datos) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datos || {}) });
+  return r.json();
+}
+const pct = (x) => (x === null || x === undefined) ? "—" : (x * 100).toFixed(1) + " %";
+
+// ---------------- dibujar el estado ----------------
+function dibujarEncabezado(s) {
+  const c = $("conexion");
+  c.textContent = s.conexion;
+  c.className = "pildora " + (s.simulado ? "sim" : "ok");
+  $("fps").textContent = s.fps.toFixed(1) + " FPS";
+  $("dispositivo").textContent = s.dispositivo;
+  $("aviso").style.display = s.aviso ? "block" : "none";
+  $("aviso").textContent = s.aviso;
+}
+
+function dibujarFlujo(s) {
+  const d = s.decision, p = s.parametros;
+  if (!d) return;
+  const cal = d.calidad;
+  etapa("e-calidad", cal.ok ? "ok" : "mal", `nitidez ${cal.nitidez}\nbrillo ${cal.brillo}`);
+  const y = d.yolo;
+  if (!cal.ok) etapa("e-yolo", "", "no se corre");
+  else if (!y) etapa("e-yolo", "mal", "sin mano");
+  else etapa("e-yolo", y.conf >= p.conf_min ? "ok" : "mal", `${y.clase} ${y.conf.toFixed(2)}`);
+  const pr = d.procesamiento;
+  if (!pr) etapa("e-proc", "", "—");
+  else if (!pr.contorno) etapa("e-proc", "mal", "sin contorno");
+  else etapa("e-proc", "ok", `solidez ${pr.solidez.toFixed(2)}\ndefectos ${pr.defectos}`);
+  const ml = d.ml;
+  if (!ml) etapa("e-ml", "", s.ml_disponible ? "—" : "no entrenado");
+  else if (p.modo === "yolo") etapa("e-ml", "", `${ml.clase} ${ml.prob.toFixed(2)} (no se usa)`);
+  else etapa("e-ml", d.etapa_falla === "ml" ? "mal" : "ok", `${ml.clase} ${ml.prob.toFixed(2)}`);
+  etapa("e-decision", d.valido ? "ok" : (y ? "mal" : ""), d.valido ? (d.enviado ? "ENVIADO " + d.enviado : "válido") : "rechazado");
+  etapa("e-pico", d.enviado ? "ok" : "", (s.linea_pico || "—").replace(/ /g, "\n").replace(/=/g, " "));   // una línea por actuador
+
+  const m = $("motivo");
+  m.textContent = d.motivo;
+  m.style.color = d.valido ? "var(--ok)" : (y ? "var(--mal)" : "var(--suave)");
+  const conf = s.confirmacion, n = p.frames_confirmar;
+  const cuenta = Math.min(conf.cuenta, n);
+  $("barra-conf").style.width = (100 * cuenta / n) + "%";
+  $("texto-conf").textContent = `Confirmación ${cuenta}/${n}` + (conf.sena ? ` (${conf.sena})` : "");
+  $("bloqueo").style.display = conf.bloqueada ? "block" : "none";
+  if (conf.bloqueada) $("bloqueo").textContent = `🖐 «${conf.bloqueada}» ya se ejecutó: baja la mano para repetirla`;
+
+  // insignias: se iluminan los temas que participaron en este cuadro
+  $("b-proc").classList.toggle("activa", !!cal);
+  $("b-dl").classList.toggle("activa", !!y);
+  $("b-ml").classList.toggle("activa", !!ml && p.modo === "yolo+ml");
+  $("b-ag").classList.toggle("activa", Date.now() - ultimoAvisoAgente < 6000);
+}
+
+function dibujarProcesamiento(d) {
+  if (!d || !d.yolo) return;
+  $("roi-info").textContent = `YOLO: ${d.yolo.clase} (${d.yolo.conf.toFixed(2)})` +
+    (d.ml ? ` · ML: ${d.ml.clase} (${d.ml.prob.toFixed(2)})` : "") + ` · ${d.hora}`;
+  const caja = $("numeros");
+  caja.replaceChildren();
+  const pr = d.procesamiento || {};
+  const datos = pr.contorno ? [
+    ["Dedos aprox.", pr.defectos ? pr.defectos + 1 : "0-1"], ["Solidez", pr.solidez.toFixed(2)],
+    ["Circularidad", pr.circularidad.toFixed(2)], ["Aspecto", pr.aspecto.toFixed(2)], ["Área", pr.area.toFixed(2)],
+  ] : [["Contorno", "no encontrado"]];
+  for (const [k, v] of datos) {
+    const n = nodo("div", "numero", k + ": ");
+    n.appendChild(nodo("b", "", String(v)));
+    caja.appendChild(n);
+  }
+  const probs = $("probs");
+  if (!d.ml) { probs.textContent = "El ML no se pudo correr en este cuadro."; return; }
+  probs.replaceChildren();
+  probs.className = "";
+  for (const [clase, v] of Object.entries(d.ml.probs).sort((a, b) => b[1] - a[1])) {
+    const fila = nodo("div", "prob" + (clase === d.yolo.clase ? " yolo" : ""));
+    fila.appendChild(nodo("span", "", clase + (clase === d.yolo.clase ? " ◀ YOLO" : "")));
+    const barra = nodo("div", "barra"); const relleno = nodo("div"); relleno.style.width = (v * 100) + "%";
+    barra.appendChild(relleno); fila.appendChild(barra);
+    fila.appendChild(nodo("span", "", v.toFixed(2)));
+    probs.appendChild(fila);
+  }
+}
+
+const anterior = {};
+function dibujarActuadores(a) {
+  const textos = { led: ["Encendida", "Apagada"], ventilador: ["Encendido", "Apagado"], servo: ["Abierta 90°", "Cerrada 0°"] };
+  for (const k of ["led", "ventilador", "servo"]) {
+    const t = $("act-" + k);
+    t.classList.toggle("on", a[k]);
+    t.querySelector(".valor").textContent = textos[k][a[k] ? 0 : 1];
+    if (k === "servo") t.querySelector(".icono").textContent = a[k] ? "🔓" : "🔒";
+    if (anterior[k] !== undefined && anterior[k] !== a[k]) {
+      t.classList.remove("pulso"); void t.offsetWidth; t.classList.add("pulso");
+    }
+    anterior[k] = a[k];
+  }
+}
+
+function dibujarChat(chat) {
+  const caja = $("chat");
+  if (chat.length && chat[chat.length - 1].id < ultimoChat) { caja.replaceChildren(); ultimoChat = 0; }  // se reinició
+  if (!chat.length) { caja.replaceChildren(); ultimoChat = 0; return; }
+  for (const m of chat) {
+    if (m.id <= ultimoChat) continue;
+    const prefijo = m.tipo === "hecho" ? "✔ " : m.tipo === "no_hecho" ? "✖ " : "";
+    const div = nodo("div", "msg " + m.tipo);
+    div.appendChild(nodo("small", "", m.hora + (m.tipo === "usuario" ? " · tú" : " · agente") +
+                                      (m.modo === "básico" ? " · modo básico (sin internet)" : "")));
+    div.appendChild(nodo("div", "", prefijo + m.texto));
+    if (m.imagen) { const im = nodo("img"); im.src = m.imagen; im.alt = "ROI guardada de la mano"; div.appendChild(im); }
+    if (m.acciones && m.acciones.length) div.appendChild(nodo("div", "acciones", m.acciones.map((x) => "→ " + x).join("   ")));
+    caja.appendChild(div);
+    ultimoChat = m.id;
+    if (!primeraCarga && m.tipo !== "usuario") ultimoAvisoAgente = Date.now();
+    if (!primeraCarga && m.tipo === "hecho") destello(m.texto.split(":")[0]);
+  }
+  while (caja.children.length > 80) caja.firstChild.remove();   // la página no crece sin límite
+  caja.scrollTop = caja.scrollHeight;
+}
+
+function destello(texto) {
+  $("destello-texto").textContent = "✔ " + texto;
+  const d = $("destello");
+  d.classList.remove("ver"); void d.offsetWidth; d.classList.add("ver");
+}
+
+function dibujarHistorial(eventos) {
+  const cuerpo = $("historial");
+  cuerpo.replaceChildren();
+  if (!eventos.length) {
+    const tr = nodo("tr"); const td = nodo("td", "nota", "Aún no hay órdenes."); td.colSpan = 4; tr.appendChild(td);
+    cuerpo.appendChild(tr); return;
+  }
+  for (const e of eventos) {
+    const tr = nodo("tr");
+    tr.appendChild(nodo("td", "", e.hora));
+    const td = nodo("td"); td.appendChild(nodo("span", "origen " + e.origen, e.origen)); tr.appendChild(td);
+    tr.appendChild(nodo("td", "", e.comando));
+    tr.appendChild(nodo("td", "", e.estado_resultante));
+    cuerpo.appendChild(tr);
+  }
+}
+
+function dibujarAjustes(p) {
+  parametros = p;
+  if (editando) return;
+  $("a-conf").value = p.conf_min; $("v-conf").textContent = p.conf_min.toFixed(2);
+  $("a-frames").value = p.frames_confirmar; $("v-frames").textContent = p.frames_confirmar;
+  $("a-ml").value = p.ml_min; $("v-ml").textContent = p.ml_min.toFixed(2);
+  $("a-modo").value = p.modo;
+}
+
+// ---------------- polling del estado (cada 300 ms) ----------------
+async function actualizar() {
+  try {
+    const r = await fetch("/api/estado", { cache: "no-store" });
+    const s = await r.json();
+    dibujarEncabezado(s);
+    dibujarFlujo(s);
+    dibujarProcesamiento(s.decision);
+    dibujarActuadores(s.actuadores);
+    dibujarChat(s.chat);
+    dibujarHistorial(s.eventos);
+    dibujarAjustes(s.parametros);
+    primeraCarga = false;
+  } catch (e) {
+    const c = $("conexion");
+    c.textContent = "Servidor caído — reintentando…";
+    c.className = "pildora mal";
+  }
+  setTimeout(actualizar, 300);
+}
+actualizar();
+
+// la tira de etapas se recarga cada ~400 ms (cache-buster para que no use la copia vieja)
+setInterval(() => {
+  if (!$("pag-vivo").classList.contains("activa")) return;
+  $("etapas").src = "/etapas.jpg?t=" + Date.now();
+  $("roi").src = "/roi.jpg?t=" + Date.now();
+}, 400);
+$("guardar-roi").onclick = () => post("/api/roi");
+// si el stream de video se corta (servidor reiniciado), reconectar
+$("video").onerror = () => setTimeout(() => $("video").src = "/video?t=" + Date.now(), 2000);
+
+// ---------------- botones manuales ----------------
+document.querySelectorAll("[data-letra]").forEach((b) => b.onclick = () => post("/api/comando", { letra: b.dataset.letra }));
+
+// ---------------- chat con el agente ----------------
+async function preguntar(texto) {
+  texto = texto.trim();
+  if (!texto) return;
+  $("mensaje").value = "";
+  $("pensando").style.display = "block";
+  $("enviar").disabled = true;
+  try { await post("/api/agente", { mensaje: texto }); }
+  catch (e) { alert("No se pudo hablar con el servidor"); }
+  $("pensando").style.display = "none";
+  $("enviar").disabled = false;
+}
+$("enviar").onclick = () => preguntar($("mensaje").value);
+$("mensaje").onkeydown = (e) => { if (e.key === "Enter") preguntar($("mensaje").value); };
+$("reiniciar").onclick = () => post("/api/agente/reiniciar");
+document.querySelectorAll("#chips button").forEach((b) => b.onclick = () => preguntar(b.textContent));
+
+// ---------------- ajustes ----------------
+function enlazar(id, clave, salida, formato) {
+  const el = $(id);
+  el.oninput = () => { editando = true; $(salida).textContent = formato(el.value); };
+  el.onchange = async () => {
+    await post("/api/parametros", { [clave]: Number(el.value) });
+    editando = false;
+  };
+}
+enlazar("a-conf", "conf_min", "v-conf", (v) => Number(v).toFixed(2));
+enlazar("a-frames", "frames_confirmar", "v-frames", (v) => v);
+enlazar("a-ml", "ml_min", "v-ml", (v) => Number(v).toFixed(2));
+$("a-modo").onfocus = () => editando = true;
+$("a-modo").onchange = async () => {
+  const r = await post("/api/parametros", { modo: $("a-modo").value });
+  if (!r.ok) alert(r.errores.join("\n"));
+  editando = false;
+};
+$("a-modo").onblur = () => editando = false;
+
+// ---------------- pestaña de modelos ----------------
+function cifras(lista) {
+  const c = nodo("div", "cifras");
+  for (const [valor, etiqueta] of lista) {
+    const d = nodo("div", "cifra"); d.appendChild(nodo("b", "", valor)); d.appendChild(nodo("span", "", etiqueta)); c.appendChild(d);
+  }
+  return c;
+}
+function tabla(encabezados, filas) {
+  const envoltura = nodo("div", "tabla-scroll");
+  const t = nodo("table"), thead = nodo("thead"), tr = nodo("tr");
+  encabezados.forEach((h) => tr.appendChild(nodo("th", "", h)));
+  thead.appendChild(tr); t.appendChild(thead);
+  const tb = nodo("tbody");
+  for (const f of filas) { const r = nodo("tr"); f.forEach((v) => r.appendChild(nodo("td", "", String(v)))); tb.appendChild(r); }
+  t.appendChild(tb); envoltura.appendChild(t);
+  return envoltura;
+}
+let metricasCargadas = false;
+async function cargarMetricas() {
+  if (metricasCargadas) return;
+  let m;
+  try { m = await (await fetch("/api/metricas")).json(); } catch (e) { return; }
+  metricasCargadas = true;
+
+  const y = $("m-yolo"); y.replaceChildren(); y.className = "";
+  if (m.yolo) {
+    const b = m.yolo.mejor;
+    y.appendChild(cifras([[b.precision.toFixed(3), "Precisión (P)"], [b.recall.toFixed(3), "Recall (R)"],
+                          [b.map50.toFixed(3), "mAP50"], [b.map50_95.toFixed(3), "mAP50-95"]]));
+    y.appendChild(nodo("p", "nota", `Mejor época ${b.epoca} de ${m.yolo.epocas} (best.pt). Última época ${m.yolo.ultima.epoca}: ` +
+      `mAP50 ${m.yolo.ultima.map50}, mAP50-95 ${m.yolo.ultima.map50_95}. P = de lo detectado, cuánto era correcto; ` +
+      `R = de lo que había, cuánto encontró; mAP50-95 exige cajas cada vez más ajustadas.`));
+  } else y.textContent = "No se encontró runs/senas/results.csv";
+
+  const ml = $("m-ml"); ml.replaceChildren(); ml.className = "";
+  if (m.ml) {
+    ml.appendChild(cifras([[m.ml.modelo_elegido, "Modelo elegido"], [pct(m.ml.exactitud_val), "Exactitud en validación"],
+                           [m.ml.n_caracteristicas, "Características por mano"], [`${m.ml.n_train} / ${m.ml.n_val}`, "Ejemplos train / val"]]));
+    ml.appendChild(nodo("h2", "", "Comparación de modelos")).style.marginTop = "12px";
+    ml.appendChild(tabla(["Modelo", "Exactitud train", "Exactitud val"],
+      Object.entries(m.ml.comparacion).map(([k, v]) => [k, pct(v.train), pct(v.val)])));
+    ml.appendChild(nodo("h2", "", "Matriz de confusión en validación (filas = real)")).style.marginTop = "12px";
+    ml.appendChild(tabla(["real \\ predicha", ...m.ml.clases], m.ml.matriz_confusion.map((f, i) => [m.ml.clases[i], ...f])));
+    const imp = m.ml.importancias_random_forest;
+    if (imp) ml.appendChild(nodo("p", "nota", `Peso de cada grupo de características (Random Forest): forma ${pct(imp.por_grupo.forma)}, ` +
+      `momentos de Hu ${pct(imp.por_grupo.hu)}, HOG ${pct(imp.por_grupo.hog)}.`));
+  } else ml.textContent = "Clasificador no entrenado: python clasificador_ml.py";
+
+  const pr = $("m-pruebas"); pr.replaceChildren(); pr.className = "";
+  if (m.pruebas) {
+    pr.appendChild(tabla(["Variación", "YOLO", "ML (caja real)", "ML (caja YOLO)", "Fusión", "Acciones equivocadas", "Falsos positivos (negativas)", "Rechazos de calidad"],
+      m.pruebas.variaciones.map((v) => [v.variacion, pct(v.yolo_exactitud), pct(v.ml_caja_real), pct(v.ml_caja_yolo),
+        pct(v.fusion_exactitud), `${v.yolo_errores} → ${v.fusion_errores}`, `${v.yolo_fp_negativas} → ${v.fusion_fp_negativas} de ${v.negativas}`, v.rechazo_calidad])));
+    pr.appendChild(nodo("p", "nota", "«a → b»: solo YOLO → sistema con fusión. " + m.pruebas.nota));
+    const s = m.pruebas.sugeridos;
+    pr.appendChild(nodo("p", "nota", `Umbrales sugeridos: ML_MIN ${s.ML_MIN}, NITIDEZ_MIN ${s.NITIDEZ_MIN}, BRILLO_MIN ${s.BRILLO_MIN}.`));
+  } else pr.textContent = "Sin pruebas: python evaluar_sistema.py";
+
+  const co = $("m-conteo"); co.replaceChildren(); co.className = "";
+  if (m.conteo) {
+    const clases = Object.keys(m.conteo.train);
+    co.appendChild(tabla(["", ...clases], ["train", "val"].map((s) => [s, ...clases.map((c) => m.conteo[s][c])])));
+  } else co.textContent = "La carpeta dataset_senas no está incluida (solo hace falta para reentrenar).";
+
+  const g = $("m-imagenes"); g.replaceChildren();
+  for (const src of m.imagenes) { const im = nodo("img"); im.src = src; im.alt = src; im.loading = "lazy"; g.appendChild(im); }
+}
+</script>
+</body>
+</html>

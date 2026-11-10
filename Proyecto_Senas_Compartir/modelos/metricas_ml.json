@@ -1,0 +1,145 @@
+{
+  "modelo_elegido": "SVM (RBF)",
+  "exactitud_val": 1.0,
+  "comparacion": {
+    "SVM (RBF)": {
+      "train": 1.0,
+      "val": 1.0
+    },
+    "Random Forest": {
+      "train": 1.0,
+      "val": 1.0
+    },
+    "KNN (k=5)": {
+      "train": 1.0,
+      "val": 1.0
+    }
+  },
+  "n_train": 843,
+  "n_val": 55,
+  "n_caracteristicas": 157,
+  "clases": [
+    "led",
+    "ventilador",
+    "servo",
+    "todo"
+  ],
+  "matriz_confusion": [
+    [
+      15,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      16,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      14,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      10
+    ]
+  ],
+  "reporte": {
+    "led": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 15.0
+    },
+    "ventilador": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 16.0
+    },
+    "servo": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 14.0
+    },
+    "todo": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "accuracy": 1.0,
+    "macro avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 55.0
+    },
+    "weighted avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 55.0
+    }
+  },
+  "importancias_random_forest": {
+    "top10": [
+      {
+        "nombre": "hog53",
+        "importancia": 0.0413
+      },
+      {
+        "nombre": "hog94",
+        "importancia": 0.0379
+      },
+      {
+        "nombre": "circularidad",
+        "importancia": 0.0369
+      },
+      {
+        "nombre": "hog50",
+        "importancia": 0.03
+      },
+      {
+        "nombre": "aspecto",
+        "importancia": 0.0298
+      },
+      {
+        "nombre": "hog85",
+        "importancia": 0.0288
+      },
+      {
+        "nombre": "hog57",
+        "importancia": 0.0284
+      },
+      {
+        "nombre": "hog67",
+        "importancia": 0.0274
+      },
+      {
+        "nombre": "hu2",
+        "importancia": 0.0272
+      },
+      {
+        "nombre": "hog18",
+        "importancia": 0.0271
+      }
+    ],
+    "por_grupo": {
+      "forma": 0.112,
+      "hu": 0.052,
+      "hog": 0.837
+    }
+  },
+  "sin_contorno": {
+    "train": 9,
+    "val": 3
+  }
+}
